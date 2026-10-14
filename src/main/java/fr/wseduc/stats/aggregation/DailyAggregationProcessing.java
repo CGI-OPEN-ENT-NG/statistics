@@ -44,6 +44,7 @@ import static org.entcore.common.aggregation.MongoConstants.*;
 import fr.wseduc.mongodb.MongoDb;
 import fr.wseduc.mongodb.MongoQueryBuilder;
 import fr.wseduc.stats.aggregation.Indicators.UniqueVisitorIndicator;
+import fr.wseduc.stats.aggregation.Indicators.StatsIndicatorMongoImpl;
 import static com.mongodb.client.model.Filters.*;
 
 /**
@@ -73,7 +74,7 @@ public class DailyAggregationProcessing extends AggregationProcessing{
 	}
 
 	private IndicatorMongoImpl createHourPeakIndicator(final Date day, int hour){
-		IndicatorMongoImpl hourPeakIndicator = new IndicatorMongoImpl(TRACE_TYPE_CONNEXION);
+		IndicatorMongoImpl hourPeakIndicator = new StatsIndicatorMongoImpl(TRACE_TYPE_CONNEXION);
 		Calendar calendarDay = Calendar.getInstance();
 		calendarDay.setTime(day);
 		final Date lowerHour = AggregationTools.setHourTo(calendarDay, hour);
@@ -103,7 +104,7 @@ public class DailyAggregationProcessing extends AggregationProcessing{
 		/// SET INDICATORS HERE & ADD THEM TO THE ARRAY LIST
 
 		//Connexions
-		IndicatorMongoImpl connexionIndicator = new IndicatorMongoImpl(TRACE_TYPE_CONNEXION);
+		IndicatorMongoImpl connexionIndicator = new StatsIndicatorMongoImpl(TRACE_TYPE_CONNEXION);
 		//Connexion hour peaks
 		IndicatorMongoImpl[] hourPeakIndicators = new IndicatorMongoImpl[24];
 		for(int i = 0; i < 24; i++){
@@ -111,9 +112,9 @@ public class DailyAggregationProcessing extends AggregationProcessing{
 		}
 
 		//Account creation, deletion & activation
-		IndicatorMongoImpl userCreationIndicator = new IndicatorMongoImpl(TRACE_TYPE_CREATE_USER);
-		IndicatorMongoImpl userDeletionIndicator = new IndicatorMongoImpl(TRACE_TYPE_DELETE_USER);
-		IndicatorMongoImpl userActivationIndicator = new IndicatorMongoImpl(TRACE_TYPE_ACTIVATION);
+		IndicatorMongoImpl userCreationIndicator = new StatsIndicatorMongoImpl(TRACE_TYPE_CREATE_USER);
+		IndicatorMongoImpl userDeletionIndicator = new StatsIndicatorMongoImpl(TRACE_TYPE_DELETE_USER);
+		IndicatorMongoImpl userActivationIndicator = new StatsIndicatorMongoImpl(TRACE_TYPE_ACTIVATION);
 
 		//Unique visitors
 		IndicatorMongoImpl uniqueVisitorIndicator = new UniqueVisitorIndicator();
@@ -289,7 +290,7 @@ public class DailyAggregationProcessing extends AggregationProcessing{
 				}
 
 				///// Special treatment for the service access Indicator : indicator has to be also grouped by module name :
-				IndicatorMongoImpl serviceAccessIndicator = new IndicatorMongoImpl(TRACE_TYPE_SVC_ACCESS);
+				IndicatorMongoImpl serviceAccessIndicator = new StatsIndicatorMongoImpl(TRACE_TYPE_SVC_ACCESS);
 
 				//Add day filter
 				addDayFilter(serviceAccessIndicator, day);
