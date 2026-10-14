@@ -25,6 +25,16 @@
       <url>https://maven.opendigitaleducation.com/nexus/content/groups/public</url>
     </repository>
   </repositories>
+  <distributionManagement>
+    <repository>
+      <id>nexus-releases</id>
+      <url>https://nexus-pic2.support-ent.fr/repository/maven-releases/</url>
+    </repository>
+    <snapshotRepository>
+      <id>nexus-snapshots</id>
+      <url>https://nexus-pic2.support-ent.fr/repository/maven-snapshots/</url>
+    </snapshotRepository>
+  </distributionManagement>
   <properties>
         <entcore.version>6.17-SNAPSHOT</entcore.version>
     <vertx-cron-timer.version>3.0-SNAPSHOT</vertx-cron-timer.version>
