@@ -15,7 +15,9 @@
         "numericours","numeritab","OGIL","OGIL-Region","Onisep","Onisep-Services","Passerelle","PasserellePise","Pearltrees","Peertube","PMB-lyceeconnecte","PMB-Gestion-lyceeconnecte",
         "ProEPS","projet-voltaire","Pronote","Riot","Sacoche","Salvum","Scratch","Speakshake","Tactileo","TurboSelf","Universalis","Universalis-Junior",
         "Webclasseur","Wekan","Wims-Auto","Wims-Euler","Wims-Math", "Minetest", "CRRE", "Magneto", "MiniBadge", "Lystore", "WebGerest", "Enseigno2", "Capeezy", "Tralalere", "GlobalExam", 
-		"madmagz-hdf","ParcoursCollegien77", "AssistanceTIC"
+		"madmagz-hdf","ParcoursCollegien77", "AssistanceTIC",
+        "MOODLE", "Moodle2", "BanquePublique", "Moodle_BP", "MoodleRegisteredService", "PronoteRegisteredService",
+        "SSOPeertube", "SSOMatrix", "app-e", "WebConferenceRoomAccess", "WebConferenceRoomCreation"
     ],
     "devices-mapping" : {
         "select-devices" : ["desktop", "mobile_app", "tablet"],

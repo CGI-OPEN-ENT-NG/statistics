@@ -11,6 +11,8 @@ vers la chaîne PostgreSQL, sans perdre l'historique.
 |---|---|
 | `stats-events-schema.sql` | DDL des schémas `events`, `repository`, `stats`, `utils`, `external` |
 | `migrate_mongo_events_to_pg.py` | Copie des événements MongoDB vers `events.<type>_events` |
+| `backfill_connector_stats.py` | Historique des connecteurs et salles WebConference dans `stats.access_*` |
+| `room_events_to_connector.sql` | Trigger : les salles WebConference deviennent des connecteurs comptés par l'agrégateur |
 
 ## Fonctionnement de la chaîne PostgreSQL
 
@@ -89,6 +91,52 @@ MongoDB n'est jamais modifié.
 
 Lancer le service d'agrégation sur l'historique migré, puis configurer le module stats en lecture PostgreSQL
 (`read-pg-config`, sans `mongo-stats-service`) et vérifier l'écran.
+
+## Connecteurs et salles WebConference
+
+L'agrégateur range les connecteurs dans `stats.access_*` avec `type = 'CONNECTOR'` et
+`module = COALESCE("cas-type", module)` (ex. `MOODLE`, `Moodle2`, `SSOMatrix`, `app-e`). Le module n'affiche que les
+modules listés dans `api-allowed-values.json` (`modules`), avec le libellé i18n de la clé en minuscules.
+Les connecteurs de la plateforme et les salles WebConference y ont été ajoutés ; une conf `api-allowed-values`
+dans le `conf.json` remplace entièrement ce fichier.
+
+Les events `ROOM_ACCESS` / `ROOM_CREATION` (indicateurs personnalisés de statistics-old) ne sont pas lus par
+l'agrégateur. Le trigger `room_events_to_connector.sql` recopie chaque event de salle dans `events.connector_events`
+(`"cas-type"` = `WebConferenceRoomAccess` / `WebConferenceRoomCreation`) : l'agrégateur les compte ensuite comme
+n'importe quel connecteur, à tous les niveaux et toutes les fréquences, sans job supplémentaire.
+
+| Fichier | Rôle |
+|---|---|
+| `room_events_to_connector.sql` | Trigger : salles WebConference → connecteurs, à installer une fois |
+| `backfill_connector_stats.py` | Historique avant la bascule, depuis MongoDB : connecteurs + salles, établissements et classes **au moment de l'event** |
+
+Ordre à respecter :
+
+1. installer le trigger, une fois les tables créées par pg-events et **avant** la bascule de l'event store :
+
+   ```bash
+   psql -d <base> -v ON_ERROR_STOP=1 -f room_events_to_connector.sql
+   ```
+
+2. bascule de l'event store et premier passage de l'agrégateur (les tables `stats.*` contiennent alors des données
+   postérieures à la bascule : l'agrégateur reprend à `MAX(date)` et ne revient plus sur l'historique) ;
+3. historique :
+
+   ```bash
+   venv/bin/python backfill_connector_stats.py --dry-run \
+     --mongo-uri mongodb://<user>:<pwd>@<host>:27017/<db> --mongo-db <db> \
+     --pg-dsn postgresql://<user>:<pwd>@<host>:5432/<base> \
+     --platform-id <valeur de event-store.platform> --to-date <heure de bascule>
+   ```
+
+   puis sans `--dry-run`. Seules les périodes (heure, jour, semaine, mois) **terminées avant** `--to-date` sont écrites,
+   la période en cours appartient à l'agrégateur. Les colonnes `*_wta` (rattachement direct) sont déduites de
+   `repository.structures.parent_structures`. Les établissements, classes et tenants absents du référentiel sont
+   ignorés (clés étrangères) et comptés dans le rapport. Le script est rejouable (`ON CONFLICT (id) DO UPDATE`).
+
+Différence avec statistics-old : les Moodle ne sont plus regroupés sous `MoodleRegisteredService`, chaque instance
+apparaît séparément (`cas-type`). Les valeurs de `cas-type` dépendent de la plateforme : vérifier celles de la prod
+(`db.events.distinct("cas-type", {"event-type": "CONNECTOR"})`) et compléter `api-allowed-values.json` et l'i18n.
 
 ## Tester la migration sur une base jetable
 
