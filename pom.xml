@@ -11,7 +11,7 @@
   </parent>
   <groupId>fr.wseduc</groupId>
   <artifactId>stats</artifactId>
-  <version>2.6.5-CGI</version>
+  <version>2.6-SNAPSHOT</version>
   <scm>
     <!-- Adapter avec l'url du repertoire (github, gitlab...) -->
     <connection>scm:git:https://github.com/edificeio/statistics.git</connection>
