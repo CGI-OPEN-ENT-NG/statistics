@@ -4,6 +4,7 @@ import { Indicator } from './indicators/abstractIndicator';
 import { Entity, StructuresResponse } from './services/entities.service';
 import { entitiesService } from './services/entities.service';
 import { cacheService } from './services/cache.service';
+import { dateService } from './services/date.service';
 import { ConnectionsIndicator } from './indicators/line/connectionsIndicator';
 import { UniqueVisitorsIndicator } from './indicators/line/uniqueVisitorsIndicator';
 import { ConnectionsPerUniqueVisitorIndicator } from './indicators/line/connectionsPerUniqueVisitorIndicator';
@@ -48,10 +49,16 @@ interface StatsControllerScope {
 		}
 	}
 	state: StatsControllerState,
+	range: {
+		from: Date,
+		to: Date
+	},
 	template: typeof template;
 	lang: typeof lang;
 	definitions: Array<string>;
-	
+
+	isRangeValid(): boolean;
+	applyRange(): Promise<void>;
 	openIndicator(indicator: Indicator): Promise<void>;
 	indicatorDetail(indicator: Indicator): void;
 	openView(container: any, view: any);
@@ -245,6 +252,32 @@ export const statsController = ng.controller('StatsController', ['$scope', '$tim
 	}
 	
 	initData();
+
+	/**** Displayed period ****/
+	$scope.range = {
+		from: dateService.getSinceDate(),
+		to: new Date()
+	};
+
+	$scope.isRangeValid = (): boolean => {
+		return !!$scope.range.from && !!$scope.range.to && $scope.range.from <= $scope.range.to;
+	};
+
+	$scope.applyRange = async (): Promise<void> => {
+		if (!$scope.isRangeValid()) {
+			return;
+		}
+		dateService.setRange($scope.range.from, $scope.range.to);
+		// data of every entity depends on the period: forget all of it
+		cacheService.clear();
+		$scope.state.entities.forEach(e => e.cacheData = null);
+		const currentIndicator = $scope.state.currentIndicator;
+		await initData();
+		if (currentIndicator) {
+			await $scope.openIndicator(currentIndicator);
+		}
+		safeScopeApply();
+	};
 
 	$scope.openIndicator = async (indicator): Promise<void> => {
 		if(!indicator) {

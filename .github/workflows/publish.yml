@@ -1,0 +1,43 @@
+name: Build and publish
+
+on:
+  push:
+    branches: [ dev, master ]
+    tags: [ '*' ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build front
+        run: |
+          if [ "$GITHUB_REF_NAME" = "master" ] || [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            yarn install --legacy-peer-deps --force && yarn upgrade entcore
+          else
+            yarn install --legacy-peer-deps --force && npm rm --no-save entcore && yarn install --no-save entcore@dev
+          fi
+          node_modules/gulp/bin/gulp.js build
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 8
+          cache: maven
+
+      - name: Build
+        run: mvn -B package
+
+      - name: Publish to CGI nexus
+        if: github.event_name != 'pull_request'
+        run: mvn -B deploy -DskipTests -DNEXUS_USERNAME="$NEXUS_USERNAME" -DNEXUS_PASSWD="$NEXUS_PASSWORD" -s settings.xml
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}

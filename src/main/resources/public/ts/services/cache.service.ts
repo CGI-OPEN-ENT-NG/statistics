@@ -46,7 +46,8 @@ export class CacheService {
 			frequency,
 			entityLevel,
 			[entityId],
-			device
+			device,
+			dateService.getToDateISOStringWithoutMs()
 		);
 		// store data in cache
 		this.apiCachedData.push({api, frequency, entityLevel, entityId, device, data, lastUpdate: new Date()});
@@ -100,6 +101,13 @@ export class CacheService {
     public needsRefresh(date: Date): boolean {
         return dateService.moreThanOneHourAgo(date);
     }
+
+	/**
+	 * Forget all API data (displayed period changed)
+	 */
+	public clear(): void {
+		this.apiCachedData = [];
+	}
 }
 
 export const cacheService = new CacheService();

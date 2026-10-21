@@ -22,17 +22,22 @@
 
 package fr.wseduc.stats;
 
+import java.io.File;
 import java.text.ParseException;
+import java.time.LocalDate;
 import java.util.Base64;
 import java.util.Map;
 
 import fr.wseduc.webutils.collections.SharedDataHelper;
+import fr.wseduc.webutils.data.FileResolver;
 import io.vertx.core.Future;
+import io.vertx.core.Handler;
 import io.vertx.core.Promise;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.pgclient.SslMode;
 import io.vertx.sqlclient.PoolOptions;
+import io.vertx.sqlclient.Tuple;
 import org.entcore.common.aggregation.MongoConstants.COLLECTIONS;
 import org.entcore.common.events.EventHelper;
 import org.entcore.common.events.EventStore;
@@ -49,6 +54,7 @@ import fr.wseduc.cron.CronTrigger;
 import fr.wseduc.stats.controllers.JobsController;
 import fr.wseduc.stats.controllers.StatsController;
 import fr.wseduc.stats.cron.CronAggregationTask;
+import fr.wseduc.stats.cron.PgAggregationTask;
 import fr.wseduc.stats.filters.WorkflowFilter;
 import fr.wseduc.stats.services.DefaultJobsServiceImpl;
 import fr.wseduc.stats.services.MockStatsService;
@@ -61,6 +67,11 @@ import com.opendigitaleducation.repository.SyncRepository;
 public class Stats extends BaseServer {
 
 	private static final Logger logger = LoggerFactory.getLogger(Stats.class);
+	private static final int REGISTER_PLATFORM_ATTEMPTS = 10;
+	private static final long REGISTER_PLATFORM_DELAY = 30000L;
+	private static final String PARTITIONS_SCRIPT = "004-partitions.sql";
+	// seconds: idle connections are closed before the network drops them (aggregation once a night)
+	private static final int DEFAULT_PG_IDLE_TIMEOUT = 60;
 
 	@Override
 	public void start(final Promise<Void> startPromise) throws Exception {
@@ -79,16 +90,9 @@ public class Stats extends BaseServer {
 		final String aggregationCron = config.getString("aggregation-cron");
 		// Day delta, default : processes yesterday events
 		int dayDelta = config.getInteger("dayDelta", -1);
-
-		if (aggregationCron != null && !aggregationCron.trim().isEmpty()) {
-			try {
-				new CronTrigger(vertx, aggregationCron).schedule(new CronAggregationTask(dayDelta));
-			} catch (ParseException e) {
-				logger.fatal(e.getMessage(), e);
-				vertx.close();
-				return Future.failedFuture(e);
-			}
-		}
+		final boolean aggregationEnabled = aggregationCron != null && !aggregationCron.trim().isEmpty();
+		// PostgreSQL aggregation on a single node of the platform
+		final boolean pgAggregation = config.getBoolean("pg-aggregation", false);
 
 		final String platformId;
 		final String eventStoreConf = (String) statsConfigMap.get("event-store");
@@ -108,13 +112,20 @@ public class Stats extends BaseServer {
 		if (pgConfig != null && !pgConfig.isEmpty() && !oldStats) {
 			final PgConnectOptions connectOptions = new PgConnectOptions().setPort(pgConfig.getInteger("port", 5432))
 					.setHost(pgConfig.getString("host")).setDatabase(pgConfig.getString("database"))
-					.setUser(pgConfig.getString("user")).setPassword(pgConfig.getString("password"));
+					.setUser(pgConfig.getString("user")).setPassword(pgConfig.getString("password"))
+					.setIdleTimeout(pgConfig.getInteger("idle-timeout", DEFAULT_PG_IDLE_TIMEOUT));
 			final SslMode sslMode = SslMode.valueOf(pgConfig.getString("ssl-mode", "DISABLE"));
 			if (!SslMode.DISABLE.equals(sslMode)) {
 				connectOptions.setSslMode(sslMode).setTrustAll(SslMode.ALLOW.equals(sslMode) || SslMode.PREFER.equals(sslMode) || SslMode.REQUIRE.equals(sslMode));
 			}
 			PoolOptions poolOptions = new PoolOptions().setMaxSize(pgConfig.getInteger("pool-size", 5));
 			PgPool pgPool = PgPool.pool(vertx, connectOptions, poolOptions);
+			final Promise<Void> platformRegistered = Promise.promise();
+			if (platformId != null) {
+				registerPlatform(pgPool, platformId, 1, platformRegistered);
+			} else {
+				platformRegistered.complete();
+			}
 
 			// SyncRepository with neo4j config
 			final String neo4jConfig = (String) statsConfigMap.get("neo4jConfig");
@@ -122,12 +133,13 @@ public class Stats extends BaseServer {
 			final String neo4jUserName = neo4jConfigJson.getString("username");
 			final String neo4jPassword = neo4jConfigJson.getString("password");
 			final String neo4jUri = neo4jConfigJson.getJsonArray("server-uris",
-					new JsonArray().add(neo4jConfigJson.getString("server-uri"))).getString(0);
+					new JsonArray().add(neo4jConfigJson.getString("server-uri"))).getString(0).replaceAll("/+$", "");
 			final JsonObject syncRepositoryConfig = new JsonObject()
 					.put("neo4j-uri", neo4jUri)
 					.put("platform-id", platformId)
 					.put("neo4j-auth", Base64.getEncoder().encodeToString((neo4jUserName + ":" + neo4jPassword).getBytes()));
-			final SyncRepository syncRepository = new SyncRepository(vertx, new JsonArray().add(syncRepositoryConfig));
+			final JsonArray platforms = new JsonArray().add(syncRepositoryConfig);
+			final SyncRepository syncRepository = new SyncRepository(vertx, platforms);
 
 			final DefaultJobsServiceImpl jobsService = new DefaultJobsServiceImpl(vertx, platformId, config.getJsonObject("api-allowed-values"));
 			jobsService.setPgPool(pgPool);
@@ -135,13 +147,39 @@ public class Stats extends BaseServer {
 			final JobsController jobsController = new JobsController();
 			jobsController.setJobsService(jobsService);
 			addController(jobsController);
+
+			if (aggregationEnabled && pgAggregation) {
+				// start of the aggregation of empty stats tables, read by the aggregator in the module config
+				final LocalDate today = LocalDate.now();
+				config.put("init-year", config.getInteger("init-year", today.getYear()));
+				config.put("init-month", config.getInteger("init-month", today.getMonthValue()));
+				// partitions created as the admin user, like the sql scripts of the module (owner of the events tables)
+				final String sqlAdminAddress = config.getJsonObject("postgresConfig", new JsonObject())
+						.getString("sqlAdminAdress", "sql.persistor.admin");
+				final String partitionsScript = FileResolver.absolutePath(config.getString("init-scripts", "sql"))
+						+ File.separator + PARTITIONS_SCRIPT;
+				final PgAggregationTask aggregationTask = new PgAggregationTask(vertx, pgPool, platforms, syncRepository,
+						sqlAdminAddress, partitionsScript);
+				final Future<Void> scheduled = scheduleAggregation(aggregationCron, aggregationTask);
+				if (scheduled.failed()) {
+					return scheduled;
+				}
+				// repository up to date at startup: needed by the history migration of a first installation
+				platformRegistered.future().onSuccess(v -> aggregationTask.syncRepositoryAtStartup());
+			}
+		} else if (aggregationEnabled) {
+			final Future<Void> scheduled = scheduleAggregation(aggregationCron, new CronAggregationTask(dayDelta));
+			if (scheduled.failed()) {
+				return scheduled;
+			}
 		}
 		if (Boolean.TRUE.equals(config.getBoolean("mock", false))) {
 			statsService = new MockStatsService(vertx, config.getString("mocks-path"));
 		} else if (readPGConfig != null && !readPGConfig.isEmpty() && !oldStats) {
 			final PgConnectOptions connectOptions = new PgConnectOptions().setPort(readPGConfig.getInteger("port", 5432))
 					.setHost(readPGConfig.getString("host")).setDatabase(readPGConfig.getString("database"))
-					.setUser(readPGConfig.getString("user")).setPassword(readPGConfig.getString("password"));
+					.setUser(readPGConfig.getString("user")).setPassword(readPGConfig.getString("password"))
+					.setIdleTimeout(readPGConfig.getInteger("idle-timeout", DEFAULT_PG_IDLE_TIMEOUT));
 			final SslMode sslMode = SslMode.valueOf(readPGConfig.getString("ssl-mode", "DISABLE"));
 			if (!SslMode.DISABLE.equals(sslMode)) {
 				connectOptions.setSslMode(sslMode).setTrustAll(SslMode.ALLOW.equals(sslMode) || SslMode.PREFER.equals(sslMode) || SslMode.REQUIRE.equals(sslMode));
@@ -157,7 +195,8 @@ public class Stats extends BaseServer {
 				.setHost(eventStorePGConfig.getString("host"))
 				.setDatabase(eventStorePGConfig.getString("database"))
 				.setUser(eventStorePGConfig.getString("user"))
-				.setPassword(eventStorePGConfig.getString("password"));
+				.setPassword(eventStorePGConfig.getString("password"))
+				.setIdleTimeout(eventStorePGConfig.getInteger("idle-timeout", DEFAULT_PG_IDLE_TIMEOUT));
 			final SslMode sslMode = SslMode.valueOf(eventStorePGConfig.getString("ssl-mode", "DISABLE"));
 			if (!SslMode.DISABLE.equals(sslMode)) {
 				connectOptions.setSslMode(sslMode).setTrustAll(SslMode.ALLOW.equals(sslMode) || SslMode.PREFER.equals(sslMode) || SslMode.REQUIRE.equals(sslMode));
@@ -181,6 +220,37 @@ public class Stats extends BaseServer {
 		MongoDbConf.getInstance().setCollection(COLLECTIONS.stats.name());
 		addFilter(new WorkflowFilter(this.vertx.eventBus(), "stats.view", "fr.wseduc.stats.controllers.StatsController|view"));
 		return Future.succeededFuture();
+	}
+
+	private Future<Void> scheduleAggregation(final String aggregationCron, final Handler<Long> task) {
+		try {
+			new CronTrigger(vertx, aggregationCron).schedule(task);
+			return Future.succeededFuture();
+		} catch (ParseException e) {
+			logger.fatal(e.getMessage(), e);
+			vertx.close();
+			return Future.failedFuture(e);
+		}
+	}
+
+	/**
+	 * Register the platform of the events (event-store.platform) in repository.platforms, required by the stats aggregator.
+	 * Retried while the tables are created by the sql scripts of the module (run asynchronously by BaseServer).
+	 */
+	private void registerPlatform(final PgPool pgPool, final String platformId, final int attempt, final Promise<Void> promise) {
+		final Tuple platform = Tuple.of(platformId, config.getString("platform-name", platformId),
+				config.getString("platform-timezone", "Europe/Paris"));
+		pgPool.preparedQuery("INSERT INTO repository.platforms (id, name, timezone) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
+				.execute(platform, ar -> {
+					if (ar.succeeded()) {
+						promise.complete();
+					} else if (attempt < REGISTER_PLATFORM_ATTEMPTS) {
+						vertx.setTimer(REGISTER_PLATFORM_DELAY, t -> registerPlatform(pgPool, platformId, attempt + 1, promise));
+					} else {
+						logger.error("Error registering platform " + platformId + " in repository.platforms", ar.cause());
+						promise.fail(ar.cause());
+					}
+				});
 	}
 
 }

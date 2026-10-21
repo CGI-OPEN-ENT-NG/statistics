@@ -2,6 +2,16 @@
     .charts-section input[type=radio]+label {
 		padding-left: 0;
 	}
+	.stats-range {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 12px;
+		margin: 10px 0;
+	}
+	.stats-range input[type=date] {
+		width: auto;
+	}
 </style>
 <article class="list-view clearfix" style="border: none;">
     <div class="humane humane-original-info humane-animate" ng-class="{zero: display.loading === false}">
@@ -14,6 +24,13 @@
             <strong class="structure-tree__current">[[ state.currentEntity.name ]]</strong>
             <structure-tree items="state.structuresTree" select="selectEntityAndOpenIndicator(id, state.currentIndicator)"></structure-tree>
         </div>
+    </div>
+
+    <!-- Displayed period -->
+    <div class="stats-range twelve cell" ng-if="state.currentEntity">
+        <label><i18n>stats.range.from</i18n> <input type="date" ng-model="range.from" /></label>
+        <label><i18n>stats.range.to</i18n> <input type="date" ng-model="range.to" /></label>
+        <button ng-click="applyRange()" ng-disabled="!isRangeValid() || display.loading"><i18n>stats.range.apply</i18n></button>
     </div>
 
     <!-- Indicator list -->

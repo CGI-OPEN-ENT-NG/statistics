@@ -90,13 +90,36 @@ export class DateService {
 		return dates.map(date => date.toLocaleString([currentLanguage], { day: '2-digit', month: '2-digit', year: 'numeric' }));
 	}
 	
-    public getSinceDate(): Date {
+	private rangeFrom: Date = null;
+	private rangeTo: Date = null;
+
+	public getDefaultSinceDate(): Date {
 		const today = new Date();
-        return new Date(today.getFullYear() - 1, today.getMonth(), 1, 0, 0, 0, 0);
+		return new Date(today.getFullYear() - 1, today.getMonth(), 1, 0, 0, 0, 0);
+	}
+
+    public getSinceDate(): Date {
+		return this.rangeFrom ? new Date(this.rangeFrom) : this.getDefaultSinceDate();
     }
-	
+
+	public getToDate(): Date {
+		return this.rangeTo ? new Date(this.rangeTo) : null;
+	}
+
+	/**
+	 * Set the displayed period, from the first day to the end of the last day (null: up to now)
+	 */
+	public setRange(from: Date, to: Date): void {
+		this.rangeFrom = from ? new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0) : null;
+		this.rangeTo = to ? new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 0) : null;
+	}
+
 	public getSinceDateISOStringWithoutMs(): string {
 		return this.getSinceDate().toISOString().split('.')[0];
+	}
+
+	public getToDateISOStringWithoutMs(): string {
+		return this.rangeTo ? this.rangeTo.toISOString().split('.')[0] : '';
 	}
 	
 	public moreThanOneHourAgo(date: Date): boolean {
