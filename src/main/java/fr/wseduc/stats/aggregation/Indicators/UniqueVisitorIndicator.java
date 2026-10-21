@@ -25,14 +25,13 @@ package fr.wseduc.stats.aggregation.Indicators;
 
 import static org.entcore.common.aggregation.MongoConstants.*;
 
-import org.entcore.common.aggregation.indicators.mongo.IndicatorMongoImpl;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
 /**
  * Indicator to measure unique visitors.
  */
-public class UniqueVisitorIndicator extends IndicatorMongoImpl{
+public class UniqueVisitorIndicator extends StatsIndicatorMongoImpl{
 
 	public static final String STATS_UNIQUEVISITORS_KEY = "UNIQUE_VISITORS";
 

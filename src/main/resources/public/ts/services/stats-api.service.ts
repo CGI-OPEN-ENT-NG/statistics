@@ -41,9 +41,13 @@ export class StatsApiService {
      * @param entitylevel structure or class
      * @param entities ids of structure or class
      * @param device boolean get device data or not
+     * @param to to date (empty: up to now)
      */
-    async getStats(api: IndicatorApi, from: string, frequency: IndicatorFrequency, entitylevel: EntityLevel, entities: Array<string>, device: boolean): Promise<Array<StatsResponse>> {
-        let queryString = `?indicator=${api}&from=${from}&frequency=${frequency}&entityLevel=${entitylevel}`;     
+    async getStats(api: IndicatorApi, from: string, frequency: IndicatorFrequency, entitylevel: EntityLevel, entities: Array<string>, device: boolean, to?: string): Promise<Array<StatsResponse>> {
+        let queryString = `?indicator=${api}&from=${from}&frequency=${frequency}&entityLevel=${entitylevel}`;
+        if (to) {
+            queryString += `&to=${to}`;
+        }
         let entitiesString = '';
         if (entities) {
             entities.forEach(entity => {
