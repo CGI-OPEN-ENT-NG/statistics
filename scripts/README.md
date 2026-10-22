@@ -171,6 +171,7 @@ lecture et d'écriture.
 | `003-campus.sql` | `source` en `varchar(16)` (rattachements `UNKNOWN` dans Neo4j), trigger salles WebConference → connecteurs |
 | `004-partitions.sql` | Partitions mensuelles des tables `events.*_events`, du mois courant à +2 mois |
 | `005-grants-permission-to-apps-role.sql` | Droits de `apps` sur les cinq schémas, y compris les partitions créées ensuite |
+| `006-device-detection.sql` | Clé de `utils.ua_device` et index sur le navigateur des connexions (détection des appareils) |
 
 Les scripts ne créent que ce qui manque : ils passent sur une base où le schéma a déjà été installé à la main, à
 condition qu'il appartienne à l'utilisateur admin (sinon, en superutilisateur : `REASSIGN OWNED BY apps TO apps_admin`
@@ -191,7 +192,16 @@ En mode PostgreSQL (`pg-config`), sur le nœud où `pg-aggregation` vaut `true` 
 1. `sql/004-partitions.sql` via `sql.persistor.admin` : partitions du mois courant à +2 mois (seul le propriétaire
    d'une table partitionnée peut lui en ajouter) ;
 2. synchronisation de `repository.*` depuis Neo4j (`neo4jConfig` d'ent-core) ;
-3. agrégation des events dans `stats.*` (`Aggregator`), avec l'utilisateur de `pg-config`.
+3. avec `enable-with-device-aggregation`, type d'appareil des connexions déduit de leur navigateur (`DeviceDetectorTask`
+   de l'agrégateur, depuis `device-init-date`, valeurs « Unknown » d'ent-core redétectées) ;
+4. si les tables par appareil sont vides : leur historique, une fois, de `device-init-date` à aujourd'hui
+   (`dates-interval` de l'agrégateur, les autres tables étant mises de côté) ;
+5. agrégation des events dans `stats.*` (`Aggregator`), avec l'utilisateur de `pg-config`.
+
+Avec `paginate-interval`, l'agrégateur ne traite qu'une page par passage (une semaine, deux mois) à partir de la
+dernière date de chaque table, ou de `init-year` / `init-month` pour une table vide : une première page sans données
+laisse la table vide et bloque à cette date. D'où la passe d'historique des tables par appareil plutôt qu'une date
+d'initialisation.
 
 Les options de l'agrégateur sont lues dans la conf du module : `enabled-frequencies`, `enable-without-device-aggregation`,
 `enable-with-device-aggregation`, `enable-activation`, `enable-delete-old-links`, `paginate-interval`, `dates-interval`,
