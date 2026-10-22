@@ -1,3 +1,4 @@
+import { profileService } from "../../services/profile.service";
 import { idiom as lang } from "entcore";
 import { AppService } from "../../services/app.service";
 import { cacheService } from "../../services/cache.service";
@@ -47,5 +48,6 @@ export class MostUsedAppsIndicator extends AbstractBarIndicator {
     postInit(apiData: Array<StatsResponse>): void {
         // initialize apps list for apps combo select
         this.appNames = AppService.getInstance().getAppNames(apiData);
+        profileService.initChartProfiles(this, apiData);
     }
 }

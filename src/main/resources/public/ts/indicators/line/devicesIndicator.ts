@@ -1,3 +1,4 @@
+import { profileService } from "../../services/profile.service";
 import { idiom as lang } from "entcore";
 import { cacheService } from "../../services/cache.service";
 import { Dataset, datasetService } from "../../services/dataset.service";
@@ -159,6 +160,6 @@ export class DevicesIndicator extends AbstractLineIndicator {
     }
 
 	postInit(apiData: Array<StatsResponse>): void {
-
+		profileService.initChartProfiles(this, apiData);
     }
 }

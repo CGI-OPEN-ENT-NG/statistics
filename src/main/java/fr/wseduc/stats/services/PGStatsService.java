@@ -111,13 +111,13 @@ public class PGStatsService implements StatsService {
             final String selectUai, final Tuple t, boolean export, String language) {
         String query =
                 "SELECT e.name as entity_name, " + selectUai + " s.* " +
-                (export ? ", tp.translation as profile_translated ":"") +
-                ((export && "access".equals(params.get("indicator")) && "ACCESS".equals(params.get("type"))) ? ", tm.translation as module_translated ":"") +
+                (export ? ", coalesce(tp.translation, s.profile) as profile_translated ":"") +
+                ((export && "access".equals(params.get("indicator")) && "ACCESS".equals(params.get("type"))) ? ", coalesce(tm.translation, s.module) as module_translated ":"") +
                 ((export && "access".equals(params.get("indicator")) && "CONNECTOR".equals(params.get("type"))) ? ", s.module as module_translated ": "") +
                 "FROM stats." + getTableName(params) + "s " +
                 "JOIN repository." + entityLevel + ("class".equals(entityLevel) ? "es" : "s") + " e on s." + entityLevel + "_id = e.id " +
-                (export ? "JOIN utils.translations tp on s.profile = tp.key and tp.language_key = '" + language + "' " : "") +
-                ((export && "access".equals(params.get("indicator")) && "ACCESS".equals(params.get("type"))) ? "JOIN utils.translations tm on s.module = tm.key and tm.language_key = '" + language + "' ": "") +
+                (export ? "LEFT JOIN utils.translations tp on s.profile = tp.key and tp.language_key = '" + language + "' " : "") +
+                ((export && "access".equals(params.get("indicator")) && "ACCESS".equals(params.get("type"))) ? "LEFT JOIN utils.translations tm on s.module = tm.key and tm.language_key = '" + language + "' ": "") +
                 "WHERE s.platform_id = $1 AND (s.date BETWEEN $2 AND $3) ";
 
         if (entityIds != null && !entityIds.isEmpty()) {
@@ -149,11 +149,11 @@ public class PGStatsService implements StatsService {
         int lastParamNumber = 3;
         String query =
                 "SELECT e.name as entity_name, " + selectUai + " s.date as date, s." + entityLevel + "_id as " +
-                entityLevel + "_id, " + (export ? "tp.translation as profile_translated": "s.profile as profile") + ", s.device_type as device_type, " +
+                entityLevel + "_id, " + (export ? "coalesce(tp.translation, s.profile) as profile_translated": "s.profile as profile") + ", s.device_type as device_type, " +
                 "s.authentications as authentications " + ("structure".equals(entityLevel) ? ", s.authentications_wta as authentications_wta " : "") +
                 "FROM stats." + getTableName(params) + "s " +
                 "JOIN repository." + entityLevel + ("class".equals(entityLevel) ? "es" : "s") + " e on s." + entityLevel + "_id = e.id " +
-                (export ? "JOIN utils.translations tp on s.profile = tp.key and tp.language_key = '" + language + "' " : "") +
+                (export ? "LEFT JOIN utils.translations tp on s.profile = tp.key and tp.language_key = '" + language + "' " : "") +
                 "WHERE s.platform_id = $1 AND (s.date BETWEEN $2 AND $3) AND device_type IN " + selectDevices.stream()
                         .map(x -> x.toString()).collect(Collectors.joining("','", "('", "') "));
         if (entityIds != null && !entityIds.isEmpty()) {
@@ -168,11 +168,11 @@ public class PGStatsService implements StatsService {
             final JsonArray sumDevice = sumDevices.getJsonArray(d);
             query += " UNION ALL " +
                 "SELECT e.name as entity_name, " + selectUai + " s.date as date, s." + entityLevel + "_id as " +
-                entityLevel + "_id, " + (export ? "tp.translation as profile_translated": "s.profile as profile") + ", '" + d + "' as device_type, " +
+                entityLevel + "_id, " + (export ? "coalesce(tp.translation, s.profile) as profile_translated": "s.profile as profile") + ", '" + d + "' as device_type, " +
                 "SUM(s.authentications) as authentications " + ("structure".equals(entityLevel) ? ", SUM(s.authentications_wta) as authentications_wta " : "") +
                 "FROM stats." + getTableName(params) + "s " +
                 "JOIN repository." + entityLevel + ("class".equals(entityLevel) ? "es" : "s") + " e on s." + entityLevel + "_id = e.id " +
-                (export ? "JOIN utils.translations tp on s.profile = tp.key and tp.language_key = '" + language + "' " : "") +
+                (export ? "LEFT JOIN utils.translations tp on s.profile = tp.key and tp.language_key = '" + language + "' " : "") +
                 "WHERE s.platform_id = $1 AND (s.date BETWEEN $2 AND $3) AND device_type IN " + sumDevice.stream()
                         .map(x -> x.toString()).collect(Collectors.joining("','", "('", "') "));
             if (entityIds != null && !entityIds.isEmpty()) {

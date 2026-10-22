@@ -71,7 +71,7 @@ export abstract class AbstractLineIndicator extends Indicator {
 			});
 			
 			// fill the chart datasets data array with data values
-			datasets = datasetService.getAllProfilesWithTotalDataset();
+			datasets = datasetService.getAllProfilesWithTotalDataset(Object.keys(chartData).filter(profile => profile !== 'Total'));
 			datasets.forEach(dataset => {
 				if (chartData[dataset.key] && chartData[dataset.key].length > 0) {
 					dataset.data = chartData[dataset.key].map(x => x.value);

@@ -1,7 +1,8 @@
 import { idiom as lang } from "entcore";
+import { profileService } from "./profile.service";
 
-export type DatasetKey = 'Total' | 'Average' | 'Student' | 'Relative' | 'Teacher' | 'Personnel' | 'Guest' | 'desktop' |
-	'mobile_app' | 'tablet' | 'smartphone' | 'other';
+// 'Total', 'Average', a profile (ENT or Campus) or a device type
+export type DatasetKey = string;
 
 export type Dataset = {
     key?: DatasetKey;
@@ -24,68 +25,30 @@ const BORDER_WIDTH_CONFIG:number = 2;
 
 export class DatasetService {
 
-	public getAllProfilesDataset(): Array<Dataset> {
-		return [{
-				key: 'Teacher',
-				label: lang.translate("stats.teacher"),
-				borderColor: 'rgba(111, 190, 46, 0.75)',
-				backgroundColor: 'rgba(111, 190, 46, 0.75)',
-				pointBackgroundColor: 'rgba(111, 190, 46, 1)',
+	/**
+	 * One line dataset per profile (ENT or Campus profiles found in the data)
+	 * @param profiles displayed profiles, the ENT ones by default
+	 */
+	public getAllProfilesDataset(profiles: Array<string> = ['Teacher', 'Personnel', 'Relative', 'Student', 'Guest']): Array<Dataset> {
+		return profileService.sort(profiles).map((profile, index) => {
+			const color = profileService.getColor(profile, index);
+			return {
+				key: profile,
+				label: profile === 'Guest' ? lang.translate("stats.others") : profileService.getLabel(profile),
+				borderColor: `rgba(${color}, 0.75)`,
+				backgroundColor: `rgba(${color}, 0.75)`,
+				pointBackgroundColor: `rgba(${color}, 1)`,
 				pointBorderWidth: 5,
 				borderWidth: BORDER_WIDTH_CONFIG,
 				fill: FILL_CONFIG,
 				lineTension: LINE_TENSION_CONFIG,
 				data: []
-			}, {
-				key: 'Personnel',
-				label: lang.translate("stats.personnel"),
-				borderColor: 'rgba(163, 72, 192, 0.75)',
-				backgroundColor: 'rgba(163, 72, 192, 0.75)',
-				pointBackgroundColor: 'rgba(163, 72, 192, 1)',
-				pointBorderWidth: 5,
-				borderWidth: BORDER_WIDTH_CONFIG,
-				fill: FILL_CONFIG,
-				lineTension: LINE_TENSION_CONFIG,
-				data: []
-			}, {
-				key: 'Relative',
-				label: lang.translate("stats.relative"),
-				borderColor: 'rgba(70, 175, 230, 0.75)',
-				backgroundColor: 'rgba(70, 175, 230, 0.75)',
-				pointBackgroundColor: 'rgba(70, 175, 230, 1)',
-				pointBorderWidth: 5,
-				borderWidth: BORDER_WIDTH_CONFIG,
-				fill: FILL_CONFIG,
-				lineTension: LINE_TENSION_CONFIG,
-				data: []
-			}, {
-				key: 'Student',
-				label: lang.translate("stats.student"),
-				borderColor: 'rgba(255, 141, 46, 0.75)',
-				backgroundColor: 'rgba(255, 141, 46, 0.75)',
-				pointBackgroundColor: 'rgba(255, 141, 46, 1)',
-				pointBorderWidth: 5,
-				borderWidth: BORDER_WIDTH_CONFIG,
-				fill: FILL_CONFIG,
-				lineTension: LINE_TENSION_CONFIG,
-				data: []
-			}, {
-				key: 'Guest',
-				label: lang.translate("stats.others"),
-				borderColor: 'rgba(255, 58, 85, 0.75)',
-				backgroundColor: 'rgba(255, 58, 85, 0.75)',
-				pointBackgroundColor: 'rgba(255, 58, 85, 1)',
-				pointBorderWidth: 5,
-				borderWidth: BORDER_WIDTH_CONFIG,
-				fill: FILL_CONFIG,
-				lineTension: LINE_TENSION_CONFIG,
-				data: []
-			}
-		]
+			};
+		});
     }
 	
-	public getAllProfilesWithTotalDataset(): Array<Dataset> {
-		const res = this.getAllProfilesDataset();
+	public getAllProfilesWithTotalDataset(profiles?: Array<string>): Array<Dataset> {
+		const res = this.getAllProfilesDataset(profiles);
 		res.unshift({
 			key: 'Total',
 			label: lang.translate("stats.total"),
@@ -101,8 +64,8 @@ export class DatasetService {
 		return res;
 	}
 	
-	public getAllProfilesWithAverageDataset(): Array<Dataset> {
-		const res = this.getAllProfilesDataset();
+	public getAllProfilesWithAverageDataset(profiles?: Array<string>): Array<Dataset> {
+		const res = this.getAllProfilesDataset(profiles);
 		res.unshift({
 			key: 'Average',
 			label: lang.translate("stats.average"),
@@ -120,7 +83,7 @@ export class DatasetService {
     
     public getDatasetByProfile(profile): Array<Dataset> {
 		return [{
-            label: lang.translate('stats.' + profile.toLowerCase()),
+            label: profileService.getLabel(profile),
             backgroundColor: "rgba(56, 137, 193, 0.75)",
 			minBarLength: 4,
 			data: []

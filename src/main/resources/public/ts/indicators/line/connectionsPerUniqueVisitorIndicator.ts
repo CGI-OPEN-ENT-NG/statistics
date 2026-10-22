@@ -121,7 +121,7 @@ export class ConnectionsPerUniqueVisitorIndicator extends AbstractLineIndicator 
 			});
 			
 			// fill the chart datasets data array with data values
-			datasets = datasetService.getAllProfilesWithAverageDataset();
+			datasets = datasetService.getAllProfilesWithAverageDataset(Object.keys(chartData).filter(profile => profile !== 'Average'));
 			datasets.forEach(dataset => {
 				if (chartData[dataset.key] && chartData[dataset.key].length > 0) {
 					dataset.data = chartData[dataset.key].map(x => x.value);

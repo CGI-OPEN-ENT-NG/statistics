@@ -25,7 +25,7 @@ export abstract class AbstractStackedBarIndicator extends Indicator {
 		
 		if (chartData.constructor === Object && Object.keys(chartData).length > 0) {
 			labels = await this.getChartLabels();
-			datasets = datasetService.getAllProfilesDataset();
+			datasets = datasetService.getAllProfilesDataset(Object.keys(chartData));
 			// fill the chart datasets data array with the data just collected from API
 			datasets.forEach(dataset => {
 				if (chartData[dataset.key] && chartData[dataset.key].length > 0) {

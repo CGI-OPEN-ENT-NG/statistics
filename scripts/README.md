@@ -10,6 +10,7 @@ vers la chaîne PostgreSQL, sans perdre l'historique.
 | Fichier | Rôle |
 |---|---|
 | `migrate_mongo_events_to_pg.py` | Copie des événements MongoDB vers `events.<type>_events` |
+| `remap_profiles.py` | Profils Campus des anciens événements (`campus_profiles.py`), suppression des stats en profil ENT |
 | `backfill_stats.py` | Historique avant la bascule dans `stats.accounts_*` et `stats.access_*` (connexions, visiteurs, activations, comptes chargés / activés, accès, connecteurs, salles WebConference) |
 
 Les tables, les migrations Edifice utiles, le trigger des salles WebConference et les premières partitions sont créés
@@ -172,6 +173,8 @@ lecture et d'écriture.
 | `004-partitions.sql` | Partitions mensuelles des tables `events.*_events`, du mois courant à +2 mois |
 | `005-grants-permission-to-apps-role.sql` | Droits de `apps` sur les cinq schémas, y compris les partitions créées ensuite |
 | `006-device-detection.sql` | Clé de `utils.ua_device` et index sur le navigateur des connexions (détection des appareils) |
+| `007-profile-length.sql` | Colonnes `profile` en `varchar(64)` : profils Campus (nom des `KC_Profile`, ex. « Gestionnaire d'inscription ») |
+| `008-campus-profiles-translations.sql` | Libellés fr / en des profils Campus pour les exports |
 
 Les scripts ne créent que ce qui manque : ils passent sur une base où le schéma a déjà été installé à la main, à
 condition qu'il appartienne à l'utilisateur admin (sinon, en superutilisateur : `REASSIGN OWNED BY apps TO apps_admin`
@@ -192,11 +195,12 @@ En mode PostgreSQL (`pg-config`), sur le nœud où `pg-aggregation` vaut `true` 
 1. `sql/004-partitions.sql` via `sql.persistor.admin` : partitions du mois courant à +2 mois (seul le propriétaire
    d'une table partitionnée peut lui en ajouter) ;
 2. synchronisation de `repository.*` depuis Neo4j (`neo4jConfig` d'ent-core) ;
-3. avec `enable-with-device-aggregation`, type d'appareil des connexions déduit de leur navigateur (`DeviceDetectorTask`
+3. profils Campus du référentiel (`campus-profiles`) ;
+4. avec `enable-with-device-aggregation`, type d'appareil des connexions déduit de leur navigateur (`DeviceDetectorTask`
    de l'agrégateur, depuis `device-init-date`, valeurs « Unknown » d'ent-core redétectées) ;
-4. si les tables par appareil sont vides : leur historique, une fois, de `device-init-date` à aujourd'hui
+5. si les tables par appareil sont vides : leur historique, une fois, de `device-init-date` à aujourd'hui
    (`dates-interval` de l'agrégateur, les autres tables étant mises de côté) ;
-5. agrégation des events dans `stats.*` (`Aggregator`), avec l'utilisateur de `pg-config`.
+6. agrégation des events dans `stats.*` (`Aggregator`), avec l'utilisateur de `pg-config`.
 
 Avec `paginate-interval`, l'agrégateur ne traite qu'une page par passage (une semaine, deux mois) à partir de la
 dernière date de chaque table, ou de `init-year` / `init-month` pour une table vide : une première page sans données
@@ -207,6 +211,40 @@ Les options de l'agrégateur sont lues dans la conf du module : `enabled-frequen
 `enable-with-device-aggregation`, `enable-activation`, `enable-delete-old-links`, `paginate-interval`, `dates-interval`,
 `init-year` / `init-month` (début des tables vides, défaut : mois du démarrage). Ce nœud synchronise aussi le référentiel
 au démarrage du module. Sans `pg-config`, le cron lance l'ancienne agrégation MongoDB.
+
+## Profils Campus
+
+Les nouveaux événements portent le profil Campus de l'utilisateur (nom du `KC_Profile` dans Neo4j). Les anciens n'ont
+que le profil ENT : `remap_profiles.py` donne à chaque personne un des profils Campus de son profil ENT, toujours le
+même (empreinte md5 de son id, environ 1/3 des personnes « Personnel » dans chacun des 3 profils), et tous ses
+événements de ce profil ENT le prennent : les visiteurs uniques restent exacts. Seuls les profils ENT sont modifiés :
+le script est rejouable et donne toujours le même profil à une personne.
+
+| Profil ENT | Profils Campus répartis entre les personnes |
+|---|---|
+| Personnel | Référent digital, Gestionnaire d'inscription, Responsable communication |
+| Teacher | Personnel pédagogique |
+| Student | Apprenant, Elève du secondaire |
+| Relative | Utilisateur extérieur |
+| Guest, aucun | Invité |
+
+Il supprime aussi les lignes `stats.*` en profil ENT : `backfill_stats.py` réécrit ensuite l'historique avec le profil
+de chaque événement dans PostgreSQL, et répartit les comptes chargés / activés de statistics-old entre les profils
+Campus (10 « Personnel » : 4, 3, 3). L'agrégateur recalcule les périodes en cours. Ordre : `migrate_mongo_events_to_pg.py`,
+`remap_profiles.py` (utilisateur propriétaire des tables), `backfill_stats.py`.
+
+`--revert` redonne d'abord leur profil ENT aux événements portant un profil Campus de cette correspondance et supprime
+leurs lignes de stats, pour refaire la répartition : seulement tant qu'ent-core n'écrit pas lui-même les profils Campus.
+
+```bash
+venv/bin/python remap_profiles.py --pg-dsn postgresql://<admin>:<pwd>@<host>:5432/<base> --platform-id <plateforme> --dry-run
+```
+
+Avec `"campus-profiles": {"none": "Invité"}` dans la conf du module, le nœud d'agrégation remplace après chaque
+synchronisation du référentiel le profil ENT de `repository.users` par le profil Campus (`HAS_PROFILE` vers
+`KC_Profile`) : comptes chargés / activés par profil Campus. Un utilisateur ayant plusieurs profils Campus (selon
+l'établissement) en prend un au hasard, toujours le même (empreinte de son id, comme `campus_profiles.py`) : les
+comptes par profil ne varient pas d'une nuit à l'autre. Sans profil Campus, il est « Invité ».
 
 ## Limites
 

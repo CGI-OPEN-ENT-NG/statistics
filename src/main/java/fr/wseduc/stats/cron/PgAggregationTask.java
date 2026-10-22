@@ -1,9 +1,17 @@
 package fr.wseduc.stats.cron;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
+import org.entcore.common.neo4j.Neo4j;
+import org.entcore.common.neo4j.Neo4jResult;
 import org.entcore.common.sql.Sql;
 
 import com.opendigitaleducation.repository.SyncRepository;
@@ -28,6 +36,12 @@ import io.vertx.sqlclient.Tuple;
 public class PgAggregationTask implements Handler<Long> {
 
 	private static final Logger log = LoggerFactory.getLogger(PgAggregationTask.class);
+	private static final String CAMPUS_PROFILES_QUERY =
+			"MATCH (u:User) OPTIONAL MATCH (u)-[:HAS_PROFILE]->(k:KC_Profile) " +
+			"RETURN u.id AS id, collect(DISTINCT k.name) AS profiles";
+	private static final String UPDATE_PROFILE =
+			"UPDATE repository.users SET profile = $1 WHERE id = $2 AND platform_id = $3 AND profile IS DISTINCT FROM $1";
+	private static final int UPDATE_BATCH_SIZE = 1000;
 	// device type written by the event store when it does not recognize the browser: detected again from the user agent
 	private static final String RESET_UNKNOWN_DEVICES =
 			"UPDATE events.login_events SET device_type = NULL WHERE device_type = 'Unknown' AND ua IS NOT NULL";
@@ -39,15 +53,18 @@ public class PgAggregationTask implements Handler<Long> {
 	private final SyncRepository syncRepository;
 	private final Sql sqlAdmin;
 	private final String partitionsScript;
+	private final JsonObject campusProfiles;
 	private final boolean deviceAggregation;
 	private final AtomicBoolean running = new AtomicBoolean(false);
 
 	/**
 	 * @param partitionsScript sql script creating the partitions, run as the admin user (owner of the events tables)
+	 * @param campusProfiles config of the profiles of the repository users (campus-profiles), null to keep the ENT ones
 	 * @param deviceAggregation enable-with-device-aggregation: device type of the logins detected before the aggregation
 	 */
 	public PgAggregationTask(Vertx vertx, PgPool pgPool, JsonArray platforms, String platformId,
-			SyncRepository syncRepository, String sqlAdminAddress, String partitionsScript, boolean deviceAggregation) {
+			SyncRepository syncRepository, String sqlAdminAddress, String partitionsScript, JsonObject campusProfiles,
+			boolean deviceAggregation) {
 		this.vertx = vertx;
 		this.pgPool = pgPool;
 		this.platforms = platforms;
@@ -55,6 +72,7 @@ public class PgAggregationTask implements Handler<Long> {
 		this.syncRepository = syncRepository;
 		this.sqlAdmin = Sql.createInstance(vertx.eventBus(), sqlAdminAddress);
 		this.partitionsScript = partitionsScript;
+		this.campusProfiles = campusProfiles;
 		this.deviceAggregation = deviceAggregation;
 	}
 
@@ -68,6 +86,7 @@ public class PgAggregationTask implements Handler<Long> {
 		log.info("[Aggregation][PostgreSQL] Start");
 		createPartitions()
 				.compose(v -> syncRepository())
+				.compose(v -> updateCampusProfiles())
 				.compose(v -> detectDevices())
 				.compose(v -> aggregateDeviceHistory())
 				.compose(v -> aggregate())
@@ -88,7 +107,7 @@ public class PgAggregationTask implements Handler<Long> {
 		if (!running.compareAndSet(false, true)) {
 			return;
 		}
-		syncRepository().onComplete(ar -> {
+		syncRepository().compose(v -> updateCampusProfiles()).onComplete(ar -> {
 			running.set(false);
 			if (ar.succeeded()) {
 				log.info("[Aggregation][PostgreSQL] Repository synchronized at startup");
@@ -119,6 +138,62 @@ public class PgAggregationTask implements Handler<Long> {
 		syncRepository.setSlavePgPool(pgPool);
 		syncRepository.sync(promise);
 		return promise.future();
+	}
+
+	/**
+	 * Campus profile (name of the KC_Profile nodes of the user in Neo4j) as profile of the repository users, used by
+	 * the aggregator for the loaded / activated accounts: the profile if the user has one, one of them picked from the
+	 * hash of the user id if he has several (they depend on the structure; same pick every night and in
+	 * scripts/campus_profiles.py), campus-profiles.none ("Invité") if he has none.
+	 * The repository synchronization writes the ENT profile again, so it runs after each one.
+	 */
+	private Future<Void> updateCampusProfiles() {
+		if (campusProfiles == null || platformId == null) {
+			return Future.succeededFuture();
+		}
+		final String none = campusProfiles.getString("none", "Invité");
+		final Promise<JsonArray> users = Promise.promise();
+		Neo4j.getInstance().execute(CAMPUS_PROFILES_QUERY, new JsonObject(), Neo4jResult.validResultHandler(either -> {
+			if (either.isRight()) {
+				users.complete(either.right().getValue());
+			} else {
+				users.fail("Error reading the Campus profiles in Neo4j : " + either.left().getValue());
+			}
+		}));
+		return users.future().compose(result -> {
+			final List<Tuple> updates = new ArrayList<>();
+			for (Object o : result) {
+				final JsonObject user = (JsonObject) o;
+				final List<String> profiles = user.getJsonArray("profiles", new JsonArray()).stream()
+						.filter(p -> p instanceof String).map(p -> (String) p).sorted().collect(Collectors.toList());
+				final String id = user.getString("id");
+				final String profile = profiles.isEmpty() ? none : profiles.get(personIndex(id) % profiles.size());
+				updates.add(Tuple.of(profile, id, platformId));
+			}
+			Future<Void> chain = Future.succeededFuture();
+			for (int i = 0; i < updates.size(); i += UPDATE_BATCH_SIZE) {
+				final List<Tuple> batch = updates.subList(i, Math.min(i + UPDATE_BATCH_SIZE, updates.size()));
+				chain = chain.compose(v -> pgPool.preparedQuery(UPDATE_PROFILE).executeBatch(batch).mapEmpty());
+			}
+			return chain.onSuccess(v -> log.info("[Aggregation][PostgreSQL] Campus profiles of " + updates.size() + " users"));
+		});
+	}
+
+	/**
+	 * Stable pseudo-random index of a person: first 7 hexadecimal digits of md5(user id), as person_index of
+	 * scripts/campus_profiles.py.
+	 */
+	static int personIndex(String userId) {
+		try {
+			final byte[] md5 = MessageDigest.getInstance("MD5").digest((userId == null ? "" : userId).getBytes(StandardCharsets.UTF_8));
+			final StringBuilder hex = new StringBuilder();
+			for (int i = 0; i < 4; i++) {
+				hex.append(String.format("%02x", md5[i]));
+			}
+			return Integer.parseInt(hex.substring(0, 7), 16);
+		} catch (NoSuchAlgorithmException e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	/**

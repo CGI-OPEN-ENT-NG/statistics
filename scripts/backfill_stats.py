@@ -12,6 +12,10 @@ Events before --to-date are used, the period containing --to-date is written par
 afterwards without "dates-interval", it restarts from DATE_TRUNC(MAX(date)) of each table and recomputes it entirely.
 Row ids are the aggregator ones, so both write the same rows. MongoDB is only read. Device tables are not filled.
 
+Profiles are the Campus profiles of the events in PostgreSQL (given by remap_profiles.py, run it first); an event
+missing in PostgreSQL gets the one of its person like remap_profiles.py. The statistics-old loaded / activated of an
+ENT profile are split between its Campus profiles (campus_profiles.py).
+
 Requirements: pip install pymongo==4.17.0 psycopg2-binary (pymongo 4.18+ requires MongoDB 4.4)
 """
 import argparse
@@ -25,6 +29,8 @@ import psycopg2
 import psycopg2.extras
 from pymongo import MongoClient
 
+from campus_profiles import campus_profile, campus_profiles, split_count
+
 ROOM_MODULES = {"ROOM_ACCESS": "WebConferenceRoomAccess", "ROOM_CREATION": "WebConferenceRoomCreation"}
 LOGIN_MODULES = {"Auth", "app-e", "Application Mobile"}
 FREQUENCIES = ("hour", "day", "week", "month")
@@ -32,6 +38,9 @@ LEVELS = ("platform", "tenant", "structure", "class")
 INDICATORS = ("accounts", "access")
 ACCOUNT_VALUES = ("loaded", "activated", "authentications", "unique_visitors", "activations", "sessions")
 ACCESS_VALUES = ("access", "unique_access_minute", "unique_access")
+# events table giving the profile of each kind of MongoDB event (rooms are counted as connectors)
+EVENT_TABLES = {"LOGIN": "login_events", "ACTIVATION": "activation_events", "ACCESS": "access_events",
+                "CONNECTOR": "connector_events", "ROOM_ACCESS": "connector_events", "ROOM_CREATION": "connector_events"}
 
 
 def parse_args():
@@ -111,6 +120,19 @@ class Repository:
         return entity in {"structure": self.parents, "class": self.classes, "tenant": self.tenants}[level]
 
 
+def load_event_profiles(conn, platform_id, to_date):
+    """Profile of the events in PostgreSQL, by table and event id."""
+    profiles = defaultdict(dict)
+    if conn is None:
+        return profiles
+    with conn.cursor() as cur:
+        for table in sorted(set(EVENT_TABLES.values())):
+            cur.execute(f"SELECT id::text, profile FROM events.{table} WHERE platform_id = %s AND date < %s",
+                        (platform_id, to_date))
+            profiles[table] = dict(cur.fetchall())
+    return profiles
+
+
 class Values:
     def __init__(self):
         self.count = 0
@@ -145,6 +167,7 @@ def main():
     if from_date:
         query["date"]["$gte"] = int(from_date.replace(tzinfo=tz).timestamp() * 1000)
     db = MongoClient(args.mongo_uri)[args.mongo_db]
+    event_profiles = load_event_profiles(conn, args.platform_id, to_date)
 
     # key: (indicator, wta, level, frequency, start, entity, profile, type, module)
     values = defaultdict(Values)
@@ -156,11 +179,15 @@ def main():
             yield frequency, period_start(minute, frequency)
 
     for doc in db[args.mongo_collection].find(query, {"ua": 0, "ip": 0, "groups": 0}):
-        profile, user, date = doc.get("profil"), doc.get("userId"), doc.get("date")
-        if not profile or not user or not isinstance(date, (int, float)):
-            stats["skipped_no_profile_or_user"] += 1
+        user, date = doc.get("userId"), doc.get("date")
+        if not user or not isinstance(date, (int, float)):
+            stats["skipped_no_user_or_date"] += 1
             continue
         event_type = doc["event-type"]
+        profile = event_profiles[EVENT_TABLES[event_type]].get(str(doc["_id"]))
+        if profile is None:
+            profile = campus_profile(doc.get("profil"), user)
+            stats["profile_not_in_postgresql"] += 1
         if event_type == "LOGIN":
             if doc.get("module") not in LOGIN_MODULES:
                 stats["skipped_login_module"] += 1
@@ -212,14 +239,17 @@ def main():
                 continue
             legacy[(doc["structures_id"], doc["profil_id"], month)] = (doc.get("ACCOUNTS") or 0,
                                                                        doc.get("ACTIVATED_ACCOUNTS") or 0)
-        for (structure, profile, month), (loaded, activated) in legacy.items():
-            for level, entity in (("structure", structure), ("platform", ""),
-                                  ("tenant", repo.tenant_of.get(structure))):
-                if entity is None or level not in levels:
-                    continue
-                snapshot = snapshots[(level, entity, profile, month)]
-                snapshot[0] += loaded
-                snapshot[1] += activated
+        for (structure, legacy_profile, month), (loaded, activated) in legacy.items():
+            profiles = campus_profiles(legacy_profile) or [legacy_profile]
+            loaded_split, activated_split = split_count(loaded, profiles), split_count(activated, profiles)
+            for profile in profiles:
+                for level, entity in (("structure", structure), ("platform", ""),
+                                      ("tenant", repo.tenant_of.get(structure))):
+                    if entity is None or level not in levels:
+                        continue
+                    snapshot = snapshots[(level, entity, profile, month)]
+                    snapshot[0] += loaded_split[profile]
+                    snapshot[1] += activated_split[profile]
         stats["legacy_snapshots"] = len(legacy)
         if "month" in frequencies:
             for (level, entity, profile, month) in snapshots:

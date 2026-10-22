@@ -101,7 +101,7 @@
                 <div>[[ lang.translate('stats.filterBy' )]] :</div>
                 <div ng-repeat="profile in state.currentIndicator.chartProfiles">
                     <input type="radio" ng-model="state.currentIndicator.chartProfile" id="[[profile]]" value="[[profile]]" ng-change="openIndicator(state.currentIndicator)">
-                    <label for="[[profile]]">[[lang.translate('stats.'+profile.toLowerCase())]]</label>
+                    <label for="[[profile]]">[[profileLabel(profile)]]</label>
                 </div>
             </div>
         </div>

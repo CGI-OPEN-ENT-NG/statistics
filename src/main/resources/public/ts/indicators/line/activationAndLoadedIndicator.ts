@@ -1,3 +1,4 @@
+import { profileService } from "../../services/profile.service";
 import { idiom as lang } from "entcore";
 import { cacheService } from "../../services/cache.service";
 import { Dataset } from "../../services/dataset.service";
@@ -203,7 +204,7 @@ export class ActivationAndLoadedIndicator extends AbstractLineIndicator {
 		const cachedIndicator = cacheService.getIndicatorFromEntityCache(this.name, this.frequency, entity);
 		if (cachedIndicator && cachedIndicator.data) {
 			// activated metric is cumulated so we need to get last value for each profile
-			['Student', 'Relative', 'Teacher', 'Personnel', 'Guest'].forEach(profile => {
+			profileService.getProfiles(cachedIndicator.data).forEach(profile => {
 				const dataFilteredByProfile = cachedIndicator.data.filter(d => d.profile === profile);
 				if (dataFilteredByProfile && dataFilteredByProfile.length > 0) {
 					dataFilteredByProfile
@@ -224,6 +225,6 @@ export class ActivationAndLoadedIndicator extends AbstractLineIndicator {
     }
 
 	postInit(apiData: Array<StatsResponse>): void {
-
+		profileService.initChartProfiles(this, apiData);
     }
 }

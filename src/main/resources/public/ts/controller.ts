@@ -19,6 +19,7 @@ import { ConnectorDetailsIndicator } from "./indicators/line/connectorDetailsInd
 import { AppService } from './services/app.service';
 import { ExportType, ExportService } from './services/export.service';
 import { UserService } from "./services/user.service";
+import { profileService } from "./services/profile.service";
 
 declare const Chart: any;
 
@@ -58,6 +59,7 @@ interface StatsControllerScope {
 	definitions: Array<string>;
 
 	isRangeValid(): boolean;
+	profileLabel(profile: string): string;
 	applyRange(): Promise<void>;
 	openIndicator(indicator: Indicator): Promise<void>;
 	indicatorDetail(indicator: Indicator): void;
@@ -86,6 +88,7 @@ export const statsController = ng.controller('StatsController', ['$scope', '$tim
 	/*               INIT & VIEWS              */
 	$scope.template = template;
 	$scope.lang = lang;
+	$scope.profileLabel = (profile: string): string => profile === 'total' ? lang.translate('stats.total') : profileService.getLabel(profile);
 	
 	// home definitions
 	$scope.definitions = [

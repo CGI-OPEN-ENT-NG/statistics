@@ -159,7 +159,8 @@ public class Stats extends BaseServer {
 				final String partitionsScript = FileResolver.absolutePath(config.getString("init-scripts", "sql"))
 						+ File.separator + PARTITIONS_SCRIPT;
 				final PgAggregationTask aggregationTask = new PgAggregationTask(vertx, pgPool, platforms, platformId,
-						syncRepository, sqlAdminAddress, partitionsScript, config.getBoolean("enable-with-device-aggregation", true));
+						syncRepository, sqlAdminAddress, partitionsScript, config.getJsonObject("campus-profiles"),
+						config.getBoolean("enable-with-device-aggregation", true));
 				final Future<Void> scheduled = scheduleAggregation(aggregationCron, aggregationTask);
 				if (scheduled.failed()) {
 					return scheduled;
