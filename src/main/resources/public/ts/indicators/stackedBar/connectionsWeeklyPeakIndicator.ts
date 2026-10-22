@@ -37,102 +37,22 @@ export class ConnectionsWeeklyPeakIndicator extends AbstractStackedBarIndicator 
 	}
 	
 	async getChartData(entity: Entity): Promise<any> {
-        let chartData: any = {};
-        let data: StatsAccountsResponse[] = await cacheService.getIndicatorData(this, entity) as StatsAccountsResponse[];
-        
-        // Regroup data by profile and day like this (O is Sunday):
-        // {
-        //  Personnel: 
-        //      0: [12, 13, ...],
-        //      1: [34, 45, ...]
-        // }
-        let dataGroupedByProfileAndDay = data.reduce((acc, x) => {
-            if (!acc[x['profile']]) {
-                acc[x['profile']] = {};
-            }
-            (acc[x['profile']][new Date(x.date).getDay()] = acc[x['profile']][new Date(x.date).getDay()] || []).push(x.authentications);
-            return acc;
-        }, {});
-        
-        
-        // Build final chart data from dataGroupedByProfileAndDay
-        // final chart data structure :
-        // {
-        //  Personnel: [sumMonday, sumTuesday, sumWednesday, sumThursday, sumFriday, sumSaturday, sumSunday],
-        //  Student: [sumMonday, sumTuesday, sumWednesday, sumThursday, sumFriday, sumSaturday, sumSunday],
-        //  ...
-        // }
-        Object.keys(dataGroupedByProfileAndDay).forEach(profile => {
-            chartData[profile] = [];
-            Object.keys(dataGroupedByProfileAndDay[profile]).forEach((day, i) => {
-                let sum = dataGroupedByProfileAndDay[profile][day].reduce((acc, x) => acc + x);
-                chartData[profile].push(sum || 0); // push 0 in case sum is null to prevent gaps in graph
-            });
-            // move Sunday value to the last array element
-            let sundayValue = chartData[profile].shift();
-            chartData[profile].push(sundayValue);
-        });
-        
-        return chartData;
+        const data: StatsAccountsResponse[] = await cacheService.getIndicatorData(this, entity) as StatsAccountsResponse[];
+        // {profile: [sum Monday, ..., sum Sunday]}
+        return this.sumBySlot(data, date => (date.getDay() + 6) % 7, 7);
     }
-    
+
     async initTotal(entity: Entity): Promise<void> {
-        let chartData: any = {};
 		const connectionsWeeklyPeakIndicator = cacheService.getIndicatorFromEntityCache(this.name, this.frequency, entity);
-		
-        let apiData: Array<StatsResponse> = await cacheService.getData(
-			this.api,
-			this.frequency,
-			entity.level,
-			entity.id,
-            false
-		);
-		
-		if (apiData && apiData.length === 0) {
+		const apiData: Array<StatsResponse> = await cacheService.getData(this.api, this.frequency, entity.level, entity.id, false);
+		if (!apiData || apiData.length === 0) {
 			connectionsWeeklyPeakIndicator.totalValue = '-';
 			return;
 		}
-		
-		const dataGroupedByProfileAndDay = apiData.reduce((acc, x) => {
-            if (!acc[x['profile']]) {
-                acc[x['profile']] = {};
-            }
-            (acc[x['profile']][new Date(x.date).getDay()] = acc[x['profile']][new Date(x.date).getDay()] || []).push(x['authentications']);
-            return acc;
-		}, {});
-		
-		Object.keys(dataGroupedByProfileAndDay).forEach(profile => {
-            chartData[profile] = [];
-            Object.keys(dataGroupedByProfileAndDay[profile]).forEach((day, i) => {
-                let sum = dataGroupedByProfileAndDay[profile][day].reduce((acc, x) => acc + x);
-                chartData[profile].push(sum);
-            });
-            // move Sunday value to the last array element
-            let sundayValue = chartData[profile].shift();
-            chartData[profile].push(sundayValue);
-		});
-		
-		const sumAll = [];
-		Object.keys(chartData).forEach(profile => {
-			if (sumAll.length === 0) {
-				sumAll.push(...chartData[profile]);
-			} else {
-				chartData[profile].forEach((sumDay, i) => sumAll[i] += sumDay);
-			}
-		});
-		const indexOfMaxValue = sumAll.reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0);
-		var daysMatch = [
-			'stats.monday',
-			'stats.tuesday',
-			'stats.wednesday',
-			'stats.thursday',
-			'stats.friday',
-			'stats.saturday',
-			'stats.sunday',
-		];
-		
+		const daysMatch = ['stats.monday', 'stats.tuesday', 'stats.wednesday', 'stats.thursday', 'stats.friday',
+			'stats.saturday', 'stats.sunday'];
 		// save value to Entity cache data
-		connectionsWeeklyPeakIndicator.totalValue = lang.translate(daysMatch[indexOfMaxValue]);
+		connectionsWeeklyPeakIndicator.totalValue = lang.translate(daysMatch[this.peakSlot(this.sumBySlot(apiData, date => (date.getDay() + 6) % 7, 7), 7)]);
     }
 
     /**

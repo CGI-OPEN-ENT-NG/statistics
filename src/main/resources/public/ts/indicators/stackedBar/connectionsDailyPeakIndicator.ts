@@ -35,87 +35,20 @@ export class ConnectionsDailyPeakIndicator extends AbstractStackedBarIndicator {
 	}
 	
 	async getChartData(entity: Entity): Promise<any> {
-        let chartData = {};
-        let data: StatsAccountsResponse[] = await cacheService.getIndicatorData(this, entity) as StatsAccountsResponse[];
-        
-        // Regroup data by profile and hour:
-        // {
-        //  Personnel: 
-        //      0: [12, 13, ...],
-        //      1: [34, 45, ...]
-        // }
-        let dataGroupedByProfileAndHours = data.reduce((acc, x) => {
-            if (!acc[x['profile']]) {
-                acc[x['profile']] = {};
-            }
-            (acc[x['profile']][new Date(x.date).getHours()] = acc[x['profile']][new Date(x.date).getHours()] || []).push(x.authentications);
-            return acc;
-        }, {});
-        
-        
-        // Build final chart data from dataGroupedByProfileAndHoues
-        // final chart data structure :
-        // {
-        //  Personnel: [sum0, sum1, sum2, sum3, sum4, ..., sum23],
-        //  Student: [sum0, sum1, sum2, sum3, sum4, ..., sum23]
-        //  ...
-        // }
-        Object.keys(dataGroupedByProfileAndHours).forEach(profile => {
-            chartData[profile] = [];
-            Object.keys(dataGroupedByProfileAndHours[profile]).forEach((day, i) => {
-                let sum = dataGroupedByProfileAndHours[profile][day].reduce((acc, x) => acc + x);
-                chartData[profile].push(sum || 0); // push 0 in case sum is null to prevent gaps in graph
-            });
-        });
-        
-        return chartData;
+        const data: StatsAccountsResponse[] = await cacheService.getIndicatorData(this, entity) as StatsAccountsResponse[];
+        // {profile: [sum 0h-1h, sum 1h-2h, ..., sum 23h-24h]}
+        return this.sumBySlot(data, date => date.getHours(), 24);
 	}
 
     async initTotal(entity: Entity): Promise<void> {
-        let chartData = {};
 		const connectionsDailyPeakIndicator = cacheService.getIndicatorFromEntityCache(this.name, this.frequency, entity);
-		
-		let accountsData: Array<StatsResponse> = await cacheService.getData(
-			this.api,
-			this.frequency,
-			entity.level,
-			entity.id,
-            false
-		);
-		
-		if (accountsData && accountsData.length === 0) {
+		const accountsData: Array<StatsResponse> = await cacheService.getData(this.api, this.frequency, entity.level, entity.id, false);
+		if (!accountsData || accountsData.length === 0) {
 			connectionsDailyPeakIndicator.totalValue = '-';
 			return;
 		}
-		
-		const dataGroupedByProfileAndDay = accountsData.reduce((acc, x) => {
-            if (!acc[x['profile']]) {
-                acc[x['profile']] = {};
-            }
-            (acc[x['profile']][new Date(x.date).getHours()] = acc[x['profile']][new Date(x.date).getHours()] || []).push(x['authentications']);
-            return acc;
-		}, {});
-		
-		Object.keys(dataGroupedByProfileAndDay).forEach(profile => {
-            chartData[profile] = [];
-            Object.keys(dataGroupedByProfileAndDay[profile]).forEach((day, i) => {
-                let sum = dataGroupedByProfileAndDay[profile][day].reduce((acc, x) => acc + x);
-                chartData[profile].push(sum);
-            });
-		});
-		
-		const sumAll = [];
-		Object.keys(chartData).forEach(profile => {
-			if (sumAll.length === 0) {
-				sumAll.push(...chartData[profile]);
-			} else {
-				chartData[profile].forEach((sumHours, i) => sumAll[i] += sumHours);
-			}
-		});
-		const indexOfMaxValue = sumAll.reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0);
-		
 		// save value to Entity cache data
-		connectionsDailyPeakIndicator.totalValue = indexOfMaxValue + 'h';
+		connectionsDailyPeakIndicator.totalValue = this.peakSlot(this.sumBySlot(accountsData, date => date.getHours(), 24), 24) + 'h';
     }
 
     /**
