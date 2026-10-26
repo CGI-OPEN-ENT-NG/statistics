@@ -18,7 +18,7 @@ export class DevicesIndicator extends AbstractLineIndicator {
     chartTitle = "stats.labels.devices";
     chartFrequencies: Array<IndicatorFrequency> = ['day', 'week', 'month'];
     chartProfile = 'total';
-    chartProfiles = ['total', 'Teacher', 'Personnel', 'Relative', 'Student'];
+    chartProfiles = ['total', 'Teacher', 'Personnel', 'Relative', 'Student', 'Guest'];
     frequency: IndicatorFrequency = 'month';
     
     private static readonly INSTANCE = new DevicesIndicator();

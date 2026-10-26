@@ -172,6 +172,7 @@ lecture et d'écriture.
 | `004-partitions.sql` | Partitions mensuelles des tables `events.*_events`, du mois courant à +2 mois |
 | `005-grants-permission-to-apps-role.sql` | Droits de `apps` sur les cinq schémas, y compris les partitions créées ensuite |
 | `006-device-detection.sql` | Clé de `utils.ua_device` et index sur le navigateur des connexions (détection des appareils) |
+| `007-campus-profile-labels.sql` | Libellés des profils ENT dans les exports comme l'ancien module statistics (Personnel pédagogique, Apprenant, Personnel, Utilisateur extérieur, Invité) |
 
 Les scripts ne créent que ce qui manque : ils passent sur une base où le schéma a déjà été installé à la main, à
 condition qu'il appartienne à l'utilisateur admin (sinon, en superutilisateur : `REASSIGN OWNED BY apps TO apps_admin`

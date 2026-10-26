@@ -96,7 +96,7 @@ export abstract class AbstractBarIndicator extends Indicator {
 	async getChartLabels(entity: Entity, chartData): Promise<Array<string>> {
         let labels = [];
 
-		Object.keys(chartData[this.chartProfile]).forEach(moduleKey => {
+		Object.keys(chartData[this.chartProfile] || {}).forEach(moduleKey => {
 			const moduleTranslated = lang.translate(moduleKey.toLowerCase());
 			if (!labels.includes(moduleTranslated)) {
 				labels.push(moduleTranslated);

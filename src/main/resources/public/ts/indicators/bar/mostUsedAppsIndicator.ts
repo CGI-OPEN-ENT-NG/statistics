@@ -14,7 +14,7 @@ export class MostUsedAppsIndicator extends AbstractBarIndicator {
     apiType: IndicatorApiType = 'access';
     chartTitle = 'stats.labels.mostUsedApps';
     chartProfile = 'total';
-    chartProfiles = ['total', 'Teacher', 'Personnel', 'Relative', 'Student'];
+    chartProfiles = ['total', 'Teacher', 'Personnel', 'Relative', 'Student', 'Guest'];
     frequency: IndicatorFrequency = 'month';
     // apps combo select
     appNames: Array<{key: string, value: string}>;

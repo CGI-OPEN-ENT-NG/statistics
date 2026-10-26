@@ -71,7 +71,7 @@ export class DatasetService {
 				data: []
 			}, {
 				key: 'Guest',
-				label: lang.translate("stats.others"),
+				label: lang.translate("stats.guest"),
 				borderColor: 'rgba(255, 58, 85, 0.75)',
 				backgroundColor: 'rgba(255, 58, 85, 0.75)',
 				pointBackgroundColor: 'rgba(255, 58, 85, 1)',

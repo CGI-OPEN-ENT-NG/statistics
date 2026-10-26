@@ -18,7 +18,7 @@ export class ActivationAndLoadedIndicator extends AbstractLineIndicator {
     chartTitle = 'stats.labels.activatedAccounts';
     chartFrequencies: Array<IndicatorFrequency> = ['day', 'week', 'month'];
     chartProfile = 'total';
-    chartProfiles = ['total', 'Teacher', 'Personnel', 'Relative', 'Student'];
+    chartProfiles = ['total', 'Teacher', 'Personnel', 'Relative', 'Student', 'Guest'];
     frequency: IndicatorFrequency = 'month';
 
     private static readonly INSTANCE = new ActivationAndLoadedIndicator();

@@ -13,7 +13,7 @@ export class MostUsedConnectorsIndicator extends AbstractBarIndicator {
     apiType: IndicatorApiType = 'access';
     chartTitle = 'stats.labels.mostUsedConnectors';
     chartProfile = 'total';
-    chartProfiles = ['total', 'Teacher', 'Personnel', 'Relative', 'Student'];
+    chartProfiles = ['total', 'Teacher', 'Personnel', 'Relative', 'Student', 'Guest'];
     frequency: IndicatorFrequency = 'month';
     // apps combo select
     appNames: Array<{key: string, value: string}>;
